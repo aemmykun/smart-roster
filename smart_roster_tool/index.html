@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Roster Tool</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>Smart Roster Tool</h1>
+        <div id="workspace-info">
+            Workspace: <span id="ws-id"></span>
+            <button onclick="copyLink()" type="button">Copy Link</button>
+        </div>
+
+        <!-- SECTION 1: INPUT FORM -->
+        <div id="input-section">
+            <h2>1. Add Staff</h2>
+            <form id="staffForm">
+                <label for="name">Name</label>
+                <input type="text" id="name" placeholder="E.g. Aemmy Kun" required title="Full Name of staff member">
+
+                <label for="role">Role</label>
+                <select id="role" title="Select Staff Role">
+                    <option value="Housekeeper">Housekeeper</option>
+                    <option value="Supervisor">Supervisor</option>
+                </select>
+
+                <label for="email">Email</label>
+                <input type="email" id="email" placeholder="aemmykun@icloud.com" required
+                    title="Email Address for notifications">
+
+                <label for="availability">Availability (Days)</label>
+                <input type="text" id="availability" placeholder="Mon;Tue;Wed;Thu;Fri" required
+                    title="Days of the week staff is available (semicolon separated)">
+
+                <button type="submit">Add Staff to Directory</button>
+            </form>
+            <div id="staffMsg" class="status hidden"></div>
+
+            <h2>2. Forecast Data</h2>
+            <form id="forecastForm">
+                <label for="f_date">Date (YYYY-MM-DD)</label>
+                <input type="date" id="f_date" required title="Select Date for Forecast">
+                <label for="occupancy">Occupancy (Rooms)</label>
+                <input type="number" id="occupancy" required title="Number of occupied rooms">
+                <button type="submit">Update Forecast</button>
+            </form>
+            <div id="forecastMsg" class="status hidden"></div>
+
+            <h2>3. Actions</h2>
+            <button onclick="generateRoster()" class="btn-green">✨ Generate Roster</button>
+            <div id="genMsg" class="status hidden"></div>
+        </div>
+
+        <!-- SECTION 2: OUTPUT / RESULT -->
+        <div id="output-section">
+            <h2>4. Current Roster</h2>
+            <input type="date" id="viewDate" onchange="fetchRoster()" title="Select date to view roster">
+            <table id="rosterTable">
+                <thead>
+                    <tr>
+                        <th>Staff</th>
+                        <th>Role</th>
+                        <th>Shift</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="3" class="empty-message">Select a date above to view shifts
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Use relative path for production (empty string means same origin)
+        const API_URL = "";
+
+        // Workspace Logic
+        let workspaceId = new URLSearchParams(window.location.search).get('workspace');
+        if (!workspaceId) {
+            workspaceId = crypto.randomUUID().split('-')[0]; // Short ID
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?workspace=' + workspaceId;
+            window.history.replaceState({ path: newUrl }, '', newUrl);
+        }
+        document.getElementById('ws-id').textContent = workspaceId;
+
+        function copyLink() {
+            navigator.clipboard.writeText(window.location.href).then(() => alert('Link copied! Share this with others to collaborate.'));
+        }
+
+        // 1. Add Staff (Real connection)
+        document.getElementById('staffForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const msgDiv = document.getElementById('staffMsg');
+            msgDiv.className = 'status hidden';
+
+            const payload = {
+                workspace_id: workspaceId,
+                name: document.getElementById('name').value,
+                role: document.getElementById('role').value,
+                email: document.getElementById('email').value,
+                availability: document.getElementById('availability').value
+            };
+
+            try {
+                const res = await fetch(`${API_URL}/staff`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    msgDiv.textContent = "✅ " + data.message;
+                    msgDiv.className = "status success";
+                    document.getElementById('staffForm').reset();
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (err) {
+                msgDiv.textContent = "❌ Error: " + err.message;
+                msgDiv.className = "status error";
+            }
+            msgDiv.classList.remove("hidden");
+        });
+
+        // 2. Update Forecast (Real connection)
+        document.getElementById('forecastForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const msgDiv = document.getElementById('forecastMsg');
+
+            const payload = {
+                workspace_id: workspaceId,
+                date: document.getElementById('f_date').value,
+                occupancy: parseInt(document.getElementById('occupancy').value)
+            };
+
+            try {
+                const res = await fetch(`${API_URL}/forecast`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    msgDiv.textContent = "✅ " + data.message;
+                    msgDiv.className = "status success";
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (err) {
+                msgDiv.textContent = "❌ Error: " + err.message;
+                msgDiv.className = "status error";
+            }
+            msgDiv.classList.remove("hidden");
+        });
+
+        // 3. Fetch Roster
+        async function fetchRoster() {
+            const date = document.getElementById('viewDate').value;
+            if (!date) return;
+
+            try {
+                const res = await fetch(`${API_URL}/roster/${date}?workspace_id=${workspaceId}`);
+                const data = await res.json();
+
+                const tbody = document.querySelector("#rosterTable tbody");
+                tbody.innerHTML = "";
+
+                if (data.length === 0) {
+                    tbody.innerHTML = "<tr><td colspan='3' class='empty-message'>No shifts found for this date.</td></tr>";
+                    return;
+                }
+
+                data.forEach(row => {
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `<td>${row.staff}</td><td>${row.role}</td><td>${row.shift}</td>`;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // 4. Trigger Generation
+        async function generateRoster() {
+            const msg = document.getElementById('genMsg');
+            msg.textContent = "Triggering generation... This may take a few seconds.";
+            msg.removeAttribute('style');
+            msg.className = "status status-loading";
+            msg.classList.remove("hidden");
+
+            try {
+                const res = await fetch(`${API_URL}/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workspace_id: workspaceId })
+                });
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    msg.textContent = "✅ Generation Complete!";
+                    msg.className = "status success";
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (err) {
+                msg.textContent = "❌ Error: " + err.message;
+                msg.className = "status error";
+            }
+        }
+    </script>
+
+</body>
+
+</html>
